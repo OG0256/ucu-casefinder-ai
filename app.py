@@ -2,63 +2,62 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="UCU Legal Case Finder", layout="wide")
+st.set_page_config(page_title="UCU CaseFinder AI", layout="wide")
+st.title("📘 UCU CaseFinder AI")
+st.subheader("Search full-text Ugandan cases from ULII.org")
 
-st.title("📚 UCU Legal Case Finder")
-st.subheader("Find full case texts from ULII and more.")
-
-def search_ulii(query):
-    """Search ULII and return a list of case titles and links."""
+def search_ulii(keyword):
+    url = f"https://ulii.org/search?search_api_fulltext={keyword.replace(' ', '+')}"
     headers = {'User-Agent': 'Mozilla/5.0'}
-    search_url = f"https://ulii.org/search?search_api_fulltext={query.replace(' ', '+')}"
-    response = requests.get(search_url, headers=headers)
+    res = requests.get(url, headers=headers)
 
-    if response.status_code != 200:
+    if res.status_code != 200:
         return []
 
-    soup = BeautifulSoup(response.text, 'html.parser')
+    soup = BeautifulSoup(res.text, 'html.parser')
+    links = soup.find_all("h3", class_="search-result-title")
+
     results = []
-
-    for h3 in soup.find_all('h3', class_='search-result-title'):
-        a = h3.find('a', href=True)
+    for h3 in links[:5]:
+        a = h3.find("a")
         if a:
-            title = a.get_text(strip=True)
-            link = "https://ulii.org" + a['href']
-            results.append((title, link))
+            title = a.text.strip()
+            href = a['href']
+            full_link = "https://ulii.org" + href
+            results.append((title, full_link))
 
-    return results[:5]  # Return top 5 results
-
-
-def get_case_text(url):
-    """Extract the full text of the case from the case page."""
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers)
-
-    if response.status_code != 200:
-        return "⚠️ Failed to fetch the case content."
-
-    soup = BeautifulSoup(response.text, 'html.parser')
-
-    content_div = soup.find('div', class_='field-item even')
-    if not content_div:
-        return "⚠️ Could not find case text on this page."
-
-    return content_div.get_text(separator="\n", strip=True)
+    return results
 
 
-# Sidebar
-st.sidebar.header("🔍 Case Search")
-query = st.sidebar.text_input("Enter case topic, citation or keyword:")
+def get_case_text(case_url):
+    res = requests.get(case_url)
+    soup = BeautifulSoup(res.content, "html.parser")
 
-if query:
-    with st.spinner("Searching ULII..."):
-        results = search_ulii(query)
+    content = soup.find("div", class_="field-item even")
+    if not content:
+        return "⚠️ Case text not found."
 
-    if results:
-        st.success(f"Found {len(results)} results. Select one below to view:")
-        for title, link in results:
-            if st.button(title):
-                with st.spinner("Loading full case text..."):
-                    case_text = get_case_text(link)
+    return content.get_text(separator="\n", strip=True)
+
+
+# User input
+search_term = st.text_input("🔍 Enter a case name, topic, or keyword:")
+
+if search_term:
+    with st.spinner("Searching..."):
+        cases = search_ulii(search_term)
+
+    if cases:
+        st.success(f"Found {len(cases)} result(s):")
+        for idx, (title, url) in enumerate(cases):
+            if st.button(f"📄 {title}", key=idx):
                 st.subheader(title)
-                st.markdown(
+                st.markdown(f"[Open on ULII]({url})", unsafe_allow_html=True)
+                with st.spinner("Fetching full case text..."):
+                    full_text = get_case_text(url)
+                st.code(full_text, language='text')
+    else:
+        st.warning("No cases found. Try a different keyword.")
+
+else:
+    st.info("Type something in the search box above to begin.")
