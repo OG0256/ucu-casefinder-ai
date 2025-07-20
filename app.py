@@ -1,86 +1,64 @@
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
-import logging
-import bleach
-from requests.exceptions import RequestException
 
-# Set up logging for debugging
-logging.basicConfig(level=logging.INFO)
+st.set_page_config(page_title="UCU Legal Case Finder", layout="wide")
 
-def sanitize_html(text):
-    # Only allow basic tags, no scripts or styles
-    return bleach.clean(text, tags=['b', 'i', 'u', 'em', 'strong', 'p', 'br'], strip=True)
+st.title("📚 UCU Legal Case Finder")
+st.subheader("Find full case texts from ULII and more.")
 
-@st.cache_data(show_spinner=False)
-def search_ulii(query, num_results=5):
-    """
-    Search for legal cases on ULII based on a query.
-
-    Args:
-        query (str): The search term or keywords.
-        num_results (int): Number of search results to return.
-
-    Returns:
-        list or str: A list of tuples containing (title, link), or an error message.
-    """
+def search_ulii(query):
+    """Search ULII and return a list of case titles and links."""
     headers = {'User-Agent': 'Mozilla/5.0'}
     search_url = f"https://ulii.org/search?search_api_fulltext={query.replace(' ', '+')}"
-    try:
-        response = requests.get(search_url, headers=headers, timeout=10)
-        response.raise_for_status()
-    except RequestException as e:
-        logging.error(f"Network/search error: {e}")
-        return f"An error occurred while searching ULII: {e}"
+    response = requests.get(search_url, headers=headers)
+
+    if response.status_code != 200:
+        return []
 
     soup = BeautifulSoup(response.text, 'html.parser')
     results = []
+
     for h3 in soup.find_all('h3', class_='search-result-title'):
         a = h3.find('a', href=True)
         if a:
             title = a.get_text(strip=True)
-            link = 'https://ulii.org' + a['href']
+            link = "https://ulii.org" + a['href']
             results.append((title, link))
-            if len(results) >= num_results:
-                break
-    return results
 
-@st.cache_data(show_spinner=False)
+    return results[:5]  # Return top 5 results
+
+
 def get_case_text(url):
-    """
-    Fetch the full text of a legal case from a given ULII URL.
-
-    Args:
-        url (str): The URL to the case.
-
-    Returns:
-        str: The sanitized text of the case.
-    """
+    """Extract the full text of the case from the case page."""
     headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-    except RequestException as e:
-        logging.error(f"Network/case fetch error: {e}")
-        return f"An error occurred while fetching the case: {e}"
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        return "⚠️ Failed to fetch the case content."
 
     soup = BeautifulSoup(response.text, 'html.parser')
-    paragraphs = soup.find_all('p')
-    case_text = "\n\n".join(p.get_text() for p in paragraphs)
-    return sanitize_html(case_text) if case_text else "No case text found."
 
-st.title("🎓 UCU Law CaseFinder AI")
-st.markdown("Find full case law decisions from ULII and other free legal sources in Uganda.")
+    content_div = soup.find('div', class_='field-item even')
+    if not content_div:
+        return "⚠️ Could not find case text on this page."
 
-# Sidebar for options
-num_results = st.sidebar.slider("Number of results", min_value=1, max_value=10, value=5)
+    return content_div.get_text(separator="\n", strip=True)
 
-query = st.text_input("Enter case name, keywords, or legal issue:")
 
-if st.button("Search"):
-    if not query or not query.strip():
-        st.warning("Please enter a valid query.")
-    else:
-        with st.spinner("Searching ULII..."):
-            results =
+# Sidebar
+st.sidebar.header("🔍 Case Search")
+query = st.sidebar.text_input("Enter case topic, citation or keyword:")
 
+if query:
+    with st.spinner("Searching ULII..."):
+        results = search_ulii(query)
+
+    if results:
+        st.success(f"Found {len(results)} results. Select one below to view:")
+        for title, link in results:
+            if st.button(title):
+                with st.spinner("Loading full case text..."):
+                    case_text = get_case_text(link)
+                st.subheader(title)
+                st.markdown(
